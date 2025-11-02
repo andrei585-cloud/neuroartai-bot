@@ -13,4 +13,5 @@ COPY bot.py .
 RUN mkdir -p data/emails images logs
 
 # Запусти бота
+# Build v2 - cache bust
 CMD ["python", "bot.py"]
