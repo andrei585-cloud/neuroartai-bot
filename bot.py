@@ -207,7 +207,7 @@ def save_processed(msg_key):
 def main_menu_keyboard():
     """Get main menu keyboard"""
     return [
-        ["🎨 Генерировать", "📧 Мой аккаунт"],
+        ["🎨 Генерировать"],
         ["ℹ️ Помощь"]
     ]
 
@@ -220,99 +220,20 @@ def handle(chat_id, text):
     
     # START
     if text == "/start":
-        if is_authorized(chat_id):
-            send_msg(chat_id, "👋 Добро пожаловать! Выбери действие:", main_menu_keyboard())
-        else:
-            send_msg(chat_id, "👋 Добро пожаловать в NeuroArtAI!\nДля начала авторизуйся.", auth_keyboard())
+        send_msg(chat_id, "👋 Добро пожаловать в NeuroArtAI!\nОтправь описание - и я создам картинку! 🎨", main_menu_keyboard())
         return
     
-    # PROFILE
-    if text == "/profile":
-        data = get_user_data(chat_id)
-        count, limit = get_generation_count(chat_id)
-        
-        if chat_id == ADMIN_ID:
-            send_msg(chat_id, f"👤 <b>Админ аккаунт</b>\n\n🔑 ID: {ADMIN_ID}\n📊 Статус: НЕОГРАНИЧЕННЫЙ\n\nВыбери действие:", main_menu_keyboard())
-        elif data:
-            send_msg(chat_id, f"👤 <b>Информация аккаунта:</b>\n📧 Email: {data['email']}\n📊 Генераций сегодня: {count}/{limit}\n📅 Дата регистрации: {data['created'][:10]}\n\nВыбери действие:", main_menu_keyboard())
-        else:
-            send_msg(chat_id, "❌ Не авторизован. Используй /start")
-        return
-    
-    # GENERATE COMMAND
+    # GENERATE
     if text == "/generate":
-        if not is_authorized(chat_id):
-            send_msg(chat_id, "❌ Авторизуйся сначала! /start")
-            return
-        
-        count, limit = get_generation_count(chat_id)
-        if count >= limit:
-            send_msg(chat_id, f"❌ Лимит достигнут! ({limit}/{limit})\nПопробуй завтра.")
-            return
-        
         if chat_id in waiting_prompt:
             return
-        
         waiting_prompt[chat_id] = True
-        send_msg(chat_id, f"🎨 Опиши изображение (сегодня: {count}/{limit}):")
+        send_msg(chat_id, "🎨 Опиши изображение:")
         return
     
-    # HELP COMMAND
+    # HELP
     if text == "/help":
-        send_msg(chat_id, "🤖 <b>NeuroArtAI Bot</b>\n\n<b>Команды:</b>\n/start - Начать\n/profile - Профиль\n/generate - Генерировать\n/help - Справка\n\n<b>Функции:</b>\n📸 Генерируй AI изображения\n📧 Один email = один аккаунт\n⏰ Лимит: 10 в день\n\n<b>Кнопки меню ниже 👇</b>", main_menu_keyboard())
-        return
-    
-    # AUTHORIZE BY EMAIL
-    if text == "📧 Авторизоваться по email":
-        waiting_email[chat_id] = True
-        send_msg(chat_id, "📧 Введи свой email:")
-        return
-    
-    # EMAIL INPUT
-    if chat_id in waiting_email:
-        email = text.strip().lower()
-        del waiting_email[chat_id]
-        
-        if not validate_email(email):
-            send_msg(chat_id, "❌ Неправильный формат email!\nПопробуй снова /start")
-            return
-        
-        if email_exists(email):
-            send_msg(chat_id, "❌ Этот email уже зарегистрирован!\nПопробуй другой email или свяжись с поддержкой.")
-            return
-        
-        if save_user_data(chat_id, email):
-            send_msg(chat_id, f"✅ Авторизация успешна!\n📧 Email: {email}\nТеперь можешь генерировать изображения!", main_menu_keyboard())
-        else:
-            send_msg(chat_id, "❌ Ошибка при сохранении. Попробуй ещё раз.")
-        return
-    
-    # MY ACCOUNT (Button)
-    if text == "📧 Мой аккаунт":
-        data = get_user_data(chat_id)
-        count, limit = get_generation_count(chat_id)
-        
-        if data:
-            send_msg(chat_id, f"👤 <b>Информация аккаунта:</b>\n📧 Email: {data['email']}\n📊 Сегодня: {count}/{limit}\n\nВыбери действие:", main_menu_keyboard())
-        else:
-            send_msg(chat_id, "❌ Не авторизован. Используй /start")
-        return
-    
-    # GENERATE (Button)
-    if text == "🎨 Генерировать":
-        if not is_authorized(chat_id):
-            return
-        
-        count, limit = get_generation_count(chat_id)
-        if count >= limit:
-            send_msg(chat_id, f"❌ Лимит достигнут! ({limit}/{limit})\nПопробуй завтра.")
-            return
-        
-        if chat_id in waiting_prompt:
-            return
-        
-        waiting_prompt[chat_id] = True
-        send_msg(chat_id, f"🎨 Опиши изображение (сегодня: {count}/{limit}):")
+        send_msg(chat_id, "🤖 <b>NeuroArtAI Bot</b>\n\n📸 Просто опиши, что хочешь увидеть!\n\n<b>Команды:</b>\n/start - Начать\n/generate - Генерировать\n/help - Справка", main_menu_keyboard())
         return
     
     # PROMPT INPUT
@@ -322,11 +243,6 @@ def handle(chat_id, text):
         
         if len(prompt) < 3:
             send_msg(chat_id, "❌ Слишком короткое описание! Минимум 3 символа.")
-            return
-        
-        count, limit = get_generation_count(chat_id)
-        if count >= limit:
-            send_msg(chat_id, f"❌ Лимит достигнут!")
             return
         
         send_msg(chat_id, f"⏳ Генерирую... (10-30 сек)\n📝 Запрос: {prompt[:50]}")
@@ -339,23 +255,42 @@ def handle(chat_id, text):
                 with open(fn, 'wb') as f:
                     f.write(img)
                 
-                increment_count(chat_id)
-                new_count, limit = get_generation_count(chat_id)
-                
-                send_img(chat_id, fn, f"✨ <b>Готово!</b>\n📝 {prompt[:80]}\n📊 {new_count}/{limit}")
-                send_msg(chat_id, "✅ Изображение отправлено! Что дальше?", main_menu_keyboard())
+                send_img(chat_id, fn, f"✨ <b>Готово!</b>\n📝 {prompt[:80]}")
+                send_msg(chat_id, "✅ Готово! Отправь ещё описание или нажми /generate", main_menu_keyboard())
             except Exception as e:
                 send_msg(chat_id, f"❌ Ошибка: {str(e)[:30]}")
         else:
             send_msg(chat_id, "❌ Ошибка генерации. Попробуй другое описание.")
         return
     
-    # HELP (Button)
-    if text == "ℹ️ Помощь":
-        send_msg(chat_id, "🤖 <b>NeuroArtAI Bot</b>\n\n📸 Генерируй AI изображения\n📧 Один email = один аккаунт\n⏰ Лимит: 10 в день\n\n<b>Используй команды:</b>\n/start /profile /generate /help", main_menu_keyboard())
+    # DEFAULT - обработай как промпт
+    if text and not text.startswith("/"):
+        waiting_prompt[chat_id] = False  # Флаг что это просто текст
+        prompt = text.strip()
+        
+        if len(prompt) < 3:
+            send_msg(chat_id, "👆 Используй кнопки ниже или напиши описание (минимум 3 символа)!", main_menu_keyboard())
+            return
+        
+        send_msg(chat_id, f"⏳ Генерирую... (10-30 сек)\n📝 Запрос: {prompt[:50]}")
+        img = gen_img(prompt)
+        
+        if img:
+            try:
+                Path("images").mkdir(exist_ok=True)
+                fn = f"images/img_{chat_id}_{int(time.time())}.png"
+                with open(fn, 'wb') as f:
+                    f.write(img)
+                
+                send_img(chat_id, fn, f"✨ <b>Готово!</b>\n📝 {prompt[:80]}")
+                send_msg(chat_id, "✅ Готово! Отправь ещё описание или нажми /generate", main_menu_keyboard())
+            except Exception as e:
+                send_msg(chat_id, f"❌ Ошибка: {str(e)[:30]}")
+        else:
+            send_msg(chat_id, "❌ Ошибка генерации. Попробуй другое описание.")
         return
     
-    # DEFAULT
+    # UNKNOWN
     send_msg(chat_id, "👆 Используй кнопки ниже!", main_menu_keyboard())
 
 def main():
