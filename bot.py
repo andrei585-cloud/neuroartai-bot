@@ -8,11 +8,32 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN') or "8400229648:AAGsp41ZXNEaVNzV2WP0N-W0IqJ2sXCyimg"
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-HF_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+PROCESSED_FILE = "processed.txt"
 
 print("[STARTUP] Bot ready")
 
-processed = set()  # Дедупликация
+# Загружаем обработанные сообщения с диска
+def load_processed():
+    """Load processed message IDs from disk"""
+    if os.path.exists(PROCESSED_FILE):
+        try:
+            with open(PROCESSED_FILE, 'r') as f:
+                return set(line.strip() for line in f if line.strip())
+        except:
+            pass
+    return set()
+
+# Сохраняем новое обработанное сообщение
+def save_processed(msg_key):
+    """Save processed message ID to disk"""
+    try:
+        with open(PROCESSED_FILE, 'a') as f:
+            f.write(msg_key + '\n')
+    except:
+        pass
+
+processed = load_processed()
+print(f"[LOAD] Loaded {len(processed)} processed messages from disk")
 
 def send_msg(chat_id, text):
     """Send message"""
@@ -68,12 +89,15 @@ def main():
                 if not (chat_id and text and msg_id):
                     continue
                 
-                # Дедупликация
+                # Дедупликация - проверяем с диска
                 key = f"{chat_id}_{msg_id}"
                 if key in processed:
+                    print(f"[SKIP] Duplicate: {key}")
                     continue
                 
+                # Помечаем как обработанное И СОХРАНЯЕМ НА ДИСК
                 processed.add(key)
+                save_processed(key)
                 print(f"[MSG] {chat_id}: {text[:40]}")
                 
                 # Обработка
