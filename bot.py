@@ -75,22 +75,29 @@ def main():
             
             r = requests.post(f"{API_URL}/getUpdates", json={"offset": offset, "timeout": 30}, timeout=35)
             if r.status_code != 200:
+                print(f"[POLL ERROR] Status {r.status_code}")
                 time.sleep(1)
                 continue
             
             updates = r.json().get("result", [])
+            print(f"[POLL] Got {len(updates)} updates, offset={offset}")
+            
             if not updates:
                 time.sleep(0.5)
                 continue
             
             for upd in updates:
-                offset = upd.get("update_id", 0) + 1
+                update_id = upd.get("update_id", 0)
+                offset = update_id + 1
                 msg = upd.get("message", {})
                 chat_id = msg.get("chat", {}).get("id")
                 text = msg.get("text", "").strip()
                 msg_id = msg.get("message_id")
                 
+                print(f"[UPDATE] update_id={update_id}, msg_id={msg_id}, chat_id={chat_id}, text={text[:30]}")
+                
                 if not (chat_id and text and msg_id):
+                    print(f"[SKIP] Missing data")
                     continue
                 
                 key = f"{chat_id}_{msg_id}"
@@ -108,7 +115,7 @@ def main():
                 last_cycle_keys.add(key)
                 processed.add(key)
                 save_processed(key)
-                print(f"[NEW] {chat_id}: {text[:40]}")
+                print(f"[NEW] Processing: {key}")
                 
                 # Обработка
                 if text == "/start":
@@ -116,6 +123,7 @@ def main():
                     continue
                 
                 # Генерируем изображение для любого текста
+                print(f"[GEN] Starting generation for: {text[:40]}")
                 send_msg(chat_id, f"⏳ Generating... ({text[:40]})")
                 img = gen_img(text)
                 
@@ -124,8 +132,10 @@ def main():
                     fn = f"images/img_{chat_id}_{int(time.time())}.png"
                     with open(fn, 'wb') as f:
                         f.write(img)
+                    print(f"[SEND] Photo: {fn}")
                     send_photo(chat_id, fn, f"Generated: {text[:60]}")
                 else:
+                    print(f"[FAIL] Generation failed")
                     send_msg(chat_id, "❌ Generation failed. Try again.")
         
         except KeyboardInterrupt:
