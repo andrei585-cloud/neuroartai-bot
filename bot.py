@@ -12,12 +12,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-ADMIN_ID = 552195777
 
+# Если TELEGRAM_TOKEN не найден - используем значение по умолчанию (для Railway)
 if not TELEGRAM_TOKEN:
-    print("ERROR: TELEGRAM_TOKEN not found in environment variables or .env file")
-    print("Make sure to set TELEGRAM_TOKEN variable on Railway or in .env locally")
+    # Fallback для Railway если переменные не работают
+    TELEGRAM_TOKEN = "8400229648:AAGsp41ZXNEaVNzV2WP0N-W0IqJ2sXCyimg"
+    print("[INFO] Using hardcoded TELEGRAM_TOKEN (Railway fallback)")
+
+if not TELEGRAM_TOKEN or TELEGRAM_TOKEN == "YOUR_TOKEN_HERE":
+    print("ERROR: TELEGRAM_TOKEN not configured!")
+    print("Set environment variable TELEGRAM_TOKEN on Railway or update bot.py")
     exit(1)
+
+ADMIN_ID = 552195777
 
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 DATA_DIR = Path("data/emails")
