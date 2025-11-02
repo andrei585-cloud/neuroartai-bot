@@ -181,6 +181,7 @@ def gen_img(prompt):
 processed = set()
 waiting_email = {}
 waiting_prompt = {}
+last_seen_msg = {}  # Хранит последний обработанный message_id для каждого chat
 
 # Файл для сохранения обработанных сообщений (дедупликация)
 PROCESSED_FILE = "processed.txt"
@@ -348,6 +349,12 @@ def main():
                         print(f"[SKIP] Duplicate message: {key}")
                         continue
                     
+                    # Также проверяем последнее видимое сообщение для этого чата
+                    if last_seen_msg.get(chat_id) == msg_id:
+                        print(f"[SKIP] Same msg_id in this cycle: {chat_id}_{msg_id}")
+                        continue
+                    
+                    last_seen_msg[chat_id] = msg_id  # Обновляем последнее видимое
                     processed.add(key)
                     save_processed(key)  # Сохраняем в файл
                     print(f"[MSG] Chat {chat_id}: {text[:50]}")
