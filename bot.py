@@ -8,13 +8,15 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
+# На локальной машине используем .env, на Railway используем переменные окружения
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 ADMIN_ID = 552195777
 
 if not TELEGRAM_TOKEN:
-    print("ERROR: TELEGRAM_TOKEN not found in .env")
+    print("ERROR: TELEGRAM_TOKEN not found in environment variables or .env file")
+    print("Make sure to set TELEGRAM_TOKEN variable on Railway or in .env locally")
     exit(1)
 
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
@@ -22,6 +24,7 @@ DATA_DIR = Path("data/emails")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 print("[STARTUP] Bot initialized with Auth & Menus")
+print(f"[INFO] Using Telegram Token: {TELEGRAM_TOKEN[:20]}...")
 
 # ==================== Setup Bot Commands ====================
 
