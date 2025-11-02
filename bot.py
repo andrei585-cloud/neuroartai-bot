@@ -8,34 +8,34 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN') or "8400229648:AAGsp41ZXNEaVNzV2WP0N-W0IqJ2sXCyimg"
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-PROCESSED_FILE = "processed.txt"
+OFFSET_FILE = "offset.txt"
 
 print("[STARTUP] Bot ready")
 
-# Загружаем обработанные сообщения с диска
-def load_processed():
-    """Load processed message IDs from disk"""
-    if os.path.exists(PROCESSED_FILE):
+# Загружаем последний offset
+def load_offset():
+    """Load last processed offset from disk"""
+    if os.path.exists(OFFSET_FILE):
         try:
-            with open(PROCESSED_FILE, 'r') as f:
-                return set(line.strip() for line in f if line.strip())
+            with open(OFFSET_FILE, 'r') as f:
+                val = f.read().strip()
+                if val.isdigit():
+                    return int(val)
         except:
             pass
-    return set()
+    return 0
 
-# Сохраняем новое обработанное сообщение
-def save_processed(msg_key):
-    """Save processed message ID to disk"""
+# Сохраняем новый offset
+def save_offset(offset):
+    """Save offset to disk"""
     try:
-        with open(PROCESSED_FILE, 'a') as f:
-            f.write(msg_key + '\n')
+        with open(OFFSET_FILE, 'w') as f:
+            f.write(str(offset))
     except:
         pass
 
-processed = load_processed()
-print(f"[LOAD] Loaded {len(processed)} processed messages from disk")
-
-last_cycle_keys = set()  # Сообщения из текущего цикла
+offset = load_offset()
+print(f"[LOAD] Starting with offset={offset}")
 
 def send_msg(chat_id, text):
     """Send message"""
@@ -66,13 +66,10 @@ def gen_img(prompt):
     return None
 
 def main():
-    global processed, last_cycle_keys
-    offset = 0
+    global offset
     
     while True:
         try:
-            last_cycle_keys = set()  # Новый цикл = новый набор ключей
-            
             r = requests.post(f"{API_URL}/getUpdates", json={"offset": offset, "timeout": 30}, timeout=35)
             if r.status_code != 200:
                 print(f"[POLL ERROR] Status {r.status_code}")
@@ -80,7 +77,7 @@ def main():
                 continue
             
             updates = r.json().get("result", [])
-            print(f"[POLL] Got {len(updates)} updates, offset={offset}")
+            print(f"[POLL] Got {len(updates)} updates")
             
             if not updates:
                 time.sleep(0.5)
@@ -88,55 +85,42 @@ def main():
             
             for upd in updates:
                 update_id = upd.get("update_id", 0)
-                offset = update_id + 1
                 msg = upd.get("message", {})
                 chat_id = msg.get("chat", {}).get("id")
                 text = msg.get("text", "").strip()
                 msg_id = msg.get("message_id")
                 
-                print(f"[UPDATE] update_id={update_id}, msg_id={msg_id}, chat_id={chat_id}, text={text[:30]}")
-                
                 if not (chat_id and text and msg_id):
-                    print(f"[SKIP] Missing data")
+                    offset = update_id + 1
+                    save_offset(offset)
                     continue
                 
-                key = f"{chat_id}_{msg_id}"
-                
-                # Двухуровневая дедупликация
-                if key in last_cycle_keys:
-                    print(f"[DUP-CYCLE] Same in this cycle: {key}")
-                    continue
-                
-                if key in processed:
-                    print(f"[DUP-DISK] Already processed: {key}")
-                    continue
-                
-                # Новое сообщение!
-                last_cycle_keys.add(key)
-                processed.add(key)
-                save_processed(key)
-                print(f"[NEW] Processing: {key}")
+                print(f"[MSG] chat={chat_id}, msg_id={msg_id}, text={text[:30]}")
                 
                 # Обработка
                 if text == "/start":
                     send_msg(chat_id, "Hi! Send me a description and I'll generate an image 🎨")
-                    continue
-                
-                # Генерируем изображение для любого текста
-                print(f"[GEN] Starting generation for: {text[:40]}")
-                send_msg(chat_id, f"⏳ Generating... ({text[:40]})")
-                img = gen_img(text)
-                
-                if img:
-                    Path("images").mkdir(exist_ok=True)
-                    fn = f"images/img_{chat_id}_{int(time.time())}.png"
-                    with open(fn, 'wb') as f:
-                        f.write(img)
-                    print(f"[SEND] Photo: {fn}")
-                    send_photo(chat_id, fn, f"Generated: {text[:60]}")
                 else:
-                    print(f"[FAIL] Generation failed")
-                    send_msg(chat_id, "❌ Generation failed. Try again.")
+                    # Генерируем изображение для любого текста
+                    print(f"[GEN] Starting generation for: {text[:40]}")
+                    send_msg(chat_id, f"⏳ Generating... ({text[:40]})")
+                    img = gen_img(text)
+                    
+                    if img:
+                        Path("images").mkdir(exist_ok=True)
+                        fn = f"images/img_{chat_id}_{int(time.time())}.png"
+                        with open(fn, 'wb') as f:
+                            f.write(img)
+                        print(f"[SEND] Photo: {fn}")
+                        send_photo(chat_id, fn, f"Generated: {text[:60]}")
+                    else:
+                        print(f"[FAIL] Generation failed")
+                        send_msg(chat_id, "❌ Generation failed. Try again.")
+                
+                # Обновляем offset ПОСЛЕ обработки сообщения
+                offset = update_id + 1
+                save_offset(offset)
+                print(f"[SAVE] offset={offset}")
         
         except KeyboardInterrupt:
             break
