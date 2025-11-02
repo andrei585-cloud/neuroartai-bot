@@ -182,6 +182,28 @@ processed = set()
 waiting_email = {}
 waiting_prompt = {}
 
+# Файл для сохранения обработанных сообщений (дедупликация)
+PROCESSED_FILE = "processed.txt"
+
+def load_processed():
+    """Load processed message IDs from disk"""
+    try:
+        if os.path.exists(PROCESSED_FILE):
+            with open(PROCESSED_FILE, "r") as f:
+                content = f.read().strip()
+                return set(content.split("\n")) if content else set()
+    except Exception as e:
+        print(f"[ERROR] Loading processed IDs: {e}")
+    return set()
+
+def save_processed(msg_key):
+    """Save processed message ID to disk"""
+    try:
+        with open(PROCESSED_FILE, "a") as f:
+            f.write(f"{msg_key}\n")
+    except Exception as e:
+        print(f"[ERROR] Saving processed ID: {e}")
+
 def main_menu_keyboard():
     """Get main menu keyboard"""
     return [
@@ -339,6 +361,11 @@ def handle(chat_id, text):
 def main():
     """Main polling loop"""
     global processed
+    
+    # Загружаем уже обработанные сообщения при запуске
+    processed = load_processed()
+    print(f"[STARTUP] Loaded {len(processed)} processed messages from disk")
+    
     offset = 0
     
     print("[POLLING] Starting polling loop...")
@@ -380,13 +407,14 @@ def main():
                     if not (chat_id and text and msg_id):
                         continue
                     
-                    # Дедупликация
+                    # Дедупликация - проверяем файл
                     key = f"{chat_id}_{msg_id}"
                     if key in processed:
                         print(f"[SKIP] Duplicate message: {key}")
                         continue
                     
                     processed.add(key)
+                    save_processed(key)  # Сохраняем в файл
                     print(f"[MSG] Chat {chat_id}: {text[:50]}")
                     
                     # Обработай сообщение
