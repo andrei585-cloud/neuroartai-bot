@@ -334,38 +334,70 @@ def main():
     global processed
     offset = 0
     
+    print("[POLLING] Starting polling loop...")
+    
     while True:
         try:
-            r = requests.post(f"{API_URL}/getUpdates", json={"offset": offset, "timeout": 30}, timeout=35)
+            # Используем longer timeout для long polling
+            r = requests.post(
+                f"{API_URL}/getUpdates",
+                json={"offset": offset, "timeout": 30},
+                timeout=35
+            )
+            
             if r.status_code != 200:
-                time.sleep(1)
+                print(f"[ERROR] Telegram API error: {r.status_code}")
+                time.sleep(2)
                 continue
             
             updates = r.json().get("result", [])
+            
             if not updates:
-                time.sleep(0.5)
+                # Нет новых сообщений, продолжаем опрос
                 continue
             
+            print(f"[UPDATES] Got {len(updates)} updates")
+            
             for upd in updates:
-                offset = upd.get("update_id", 0) + 1
-                msg = upd.get("message", {})
-                chat_id = msg.get("chat", {}).get("id")
-                text = msg.get("text", "")
-                msg_id = msg.get("message_id")
-                
-                if chat_id and text and msg_id:
+                try:
+                    offset = upd.get("update_id", 0) + 1
+                    msg = upd.get("message", {})
+                    
+                    if not msg:
+                        continue
+                    
+                    chat_id = msg.get("chat", {}).get("id")
+                    text = msg.get("text", "").strip()
+                    msg_id = msg.get("message_id")
+                    
+                    if not (chat_id and text and msg_id):
+                        continue
+                    
+                    # Дедупликация
                     key = f"{chat_id}_{msg_id}"
-                    if key not in processed:
-                        processed.add(key)
-                        print(f"[MSG] {chat_id}: {text[:40]}")
-                        handle(chat_id, text)
+                    if key in processed:
+                        print(f"[SKIP] Duplicate message: {key}")
+                        continue
+                    
+                    processed.add(key)
+                    print(f"[MSG] Chat {chat_id}: {text[:50]}")
+                    
+                    # Обработай сообщение
+                    handle(chat_id, text)
+                    
+                except Exception as e:
+                    print(f"[ERROR] Processing update: {e}")
+                    continue
         
-        except KeyboardInterrupt:
-            print("[STOP] Bot stopped")
-            break
+        except requests.exceptions.Timeout:
+            print("[TIMEOUT] Request timeout, retrying...")
+            time.sleep(2)
+        except requests.exceptions.ConnectionError:
+            print("[ERROR] Connection error, retrying...")
+            time.sleep(5)
         except Exception as e:
-            print(f"[ERROR] {str(e)[:50]}")
-            time.sleep(1)
+            print(f"[ERROR] Unexpected error: {e}")
+            time.sleep(2)
 
 if __name__ == "__main__":
     setup_commands()
