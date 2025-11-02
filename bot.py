@@ -1,382 +1,105 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-NeuroArtAI Bot with Authorization, Menu & Daily Limits
-"""
-import os, json, time, requests, re
+import os, time, requests
 from pathlib import Path
-from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-# На локальной машине используем .env, на Railway используем переменные окружения
 load_dotenv()
 
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-
-# Если TELEGRAM_TOKEN не найден - используем значение по умолчанию (для Railway)
-if not TELEGRAM_TOKEN:
-    # Fallback для Railway если переменные не работают
-    TELEGRAM_TOKEN = "8400229648:AAGsp41ZXNEaVNzV2WP0N-W0IqJ2sXCyimg"
-    print("[INFO] Using hardcoded TELEGRAM_TOKEN (Railway fallback)")
-
-if not TELEGRAM_TOKEN or TELEGRAM_TOKEN == "YOUR_TOKEN_HERE":
-    print("ERROR: TELEGRAM_TOKEN not configured!")
-    print("Set environment variable TELEGRAM_TOKEN on Railway or update bot.py")
-    exit(1)
-
-ADMIN_ID = 552195777
-
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN') or "8400229648:AAGsp41ZXNEaVNzV2WP0N-W0IqJ2sXCyimg"
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-DATA_DIR = Path("data/emails")
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+HF_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
 
-print("[STARTUP] Bot initialized with Auth & Menus")
-print(f"[INFO] Using Telegram Token: {TELEGRAM_TOKEN[:20]}...")
+print("[STARTUP] Bot ready")
 
-# ==================== Setup Bot Commands ====================
+processed = set()  # Дедупликация
 
-def setup_commands():
-    """Register bot commands in Telegram"""
-    commands = [
-        {"command": "start", "description": "Начать работу с ботом"},
-        {"command": "profile", "description": "Мой профиль и статистика"},
-        {"command": "generate", "description": "Генерировать изображение"},
-        {"command": "help", "description": "Справка"},
-    ]
+def send_msg(chat_id, text):
+    """Send message"""
     try:
-        requests.post(f"{API_URL}/setMyCommands", json={"commands": commands}, timeout=10)
-        print("[SETUP] Commands registered")
+        requests.post(f"{API_URL}/sendMessage", json={"chat_id": chat_id, "text": text}, timeout=10)
     except:
         pass
 
-# ==================== Storage Functions ====================
-
-def get_user_file(chat_id):
-    """Get user data file path"""
-    return DATA_DIR / f"{chat_id}.json"
-
-def get_user_data(chat_id):
-    """Load user data from file"""
+def send_photo(chat_id, img_path, cap):
+    """Send photo"""
     try:
-        f = get_user_file(chat_id)
-        if f.exists():
-            return json.loads(f.read_text())
+        with open(img_path, 'rb') as f:
+            requests.post(f"{API_URL}/sendPhoto", files={'photo': f}, data={'chat_id': chat_id, 'caption': cap}, timeout=60)
     except:
         pass
-    return None
-
-def save_user_data(chat_id, email):
-    """Save user data to file"""
-    try:
-        data = {
-            "email": email,
-            "chat_id": chat_id,
-            "created": datetime.now().isoformat(),
-            "today": datetime.now().date().isoformat(),
-            "count": 0
-        }
-        get_user_file(chat_id).write_text(json.dumps(data, indent=2))
-        return True
-    except Exception as e:
-        print(f"[SAVE ERROR] {e}")
-    return False
-
-def is_authorized(chat_id):
-    """Check if user is authorized"""
-    if chat_id == ADMIN_ID:
-        return True
-    return get_user_data(chat_id) is not None
-
-def get_generation_count(chat_id):
-    """Get today's generation count"""
-    if chat_id == ADMIN_ID:
-        return 0, 999
-    
-    data = get_user_data(chat_id)
-    if not data:
-        return 0, 10
-    
-    today = datetime.now().date().isoformat()
-    if data.get("today") != today:
-        data["today"] = today
-        data["count"] = 0
-        get_user_file(chat_id).write_text(json.dumps(data, indent=2))
-    
-    return data.get("count", 0), 10
-
-def increment_count(chat_id):
-    """Increment generation count"""
-    if chat_id == ADMIN_ID:
-        return
-    
-    data = get_user_data(chat_id)
-    if data:
-        data["count"] = data.get("count", 0) + 1
-        get_user_file(chat_id).write_text(json.dumps(data, indent=2))
-
-def validate_email(email):
-    """Check email format"""
-    return bool(re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email))
-
-def email_exists(email):
-    """Check if email already registered"""
-    for f in DATA_DIR.glob("*.json"):
-        try:
-            if json.loads(f.read_text()).get("email") == email:
-                return True
-        except:
-            pass
-    return False
-
-# ==================== Telegram Functions ====================
-
-def send_msg(chat_id, text, keyboard=None):
-    """Send text message with optional keyboard"""
-    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
-    
-    if keyboard:
-        payload["reply_markup"] = {
-            "keyboard": keyboard,
-            "resize_keyboard": True,
-            "one_time_keyboard": False
-        }
-    
-    try:
-        requests.post(f"{API_URL}/sendMessage", json=payload, timeout=10)
-    except:
-        pass
-
-def send_img(chat_id, img_path, cap):
-    """Send image with caption"""
-    for _ in range(3):
-        try:
-            with open(img_path, 'rb') as f:
-                r = requests.post(f"{API_URL}/sendPhoto", 
-                    files={'photo': f}, 
-                    data={'chat_id': chat_id, 'caption': cap, 'parse_mode': 'HTML'}, 
-                    timeout=60)
-                if r.status_code == 200:
-                    return True
-        except:
-            time.sleep(1)
-    return False
 
 def gen_img(prompt):
-    """Generate image using Pollinations API"""
+    """Generate image"""
     try:
         import urllib.parse
         safe_prompt = urllib.parse.quote(prompt)
         url = f"https://image.pollinations.ai/prompt/{safe_prompt}"
         r = requests.get(url, timeout=120, allow_redirects=True)
-        
         if r.status_code == 200 and len(r.content) > 1000:
             return r.content
-    except Exception as e:
-        print(f"[GEN ERROR] {str(e)[:50]}")
-    
+    except:
+        pass
     return None
 
-# ==================== Main Bot Logic ====================
-
-processed = set()
-waiting_email = {}
-waiting_prompt = {}
-last_seen_msg = {}  # Хранит последний обработанный message_id для каждого chat
-
-# Файл для сохранения обработанных сообщений (дедупликация)
-PROCESSED_FILE = "processed.txt"
-
-def load_processed():
-    """Load processed message IDs from disk"""
-    try:
-        if os.path.exists(PROCESSED_FILE):
-            with open(PROCESSED_FILE, "r") as f:
-                content = f.read().strip()
-                return set(content.split("\n")) if content else set()
-    except Exception as e:
-        print(f"[ERROR] Loading processed IDs: {e}")
-    return set()
-
-def save_processed(msg_key):
-    """Save processed message ID to disk"""
-    try:
-        with open(PROCESSED_FILE, "a") as f:
-            f.write(f"{msg_key}\n")
-    except Exception as e:
-        print(f"[ERROR] Saving processed ID: {e}")
-
-def main_menu_keyboard():
-    """Get main menu keyboard"""
-    return [
-        ["🎨 Генерировать"],
-        ["ℹ️ Помощь"]
-    ]
-
-def auth_keyboard():
-    """Get auth keyboard"""
-    return [["📧 Авторизоваться по email"]]
-
-def handle(chat_id, text):
-    """Handle incoming message"""
-    
-    # START
-    if text == "/start":
-        send_msg(chat_id, "👋 Добро пожаловать в NeuroArtAI!\nОтправь описание - и я создам картинку! 🎨", main_menu_keyboard())
-        return
-    
-    # GENERATE
-    if text == "/generate":
-        if chat_id in waiting_prompt:
-            return
-        waiting_prompt[chat_id] = True
-        send_msg(chat_id, "🎨 Опиши изображение:")
-        return
-    
-    # HELP
-    if text == "/help":
-        send_msg(chat_id, "🤖 <b>NeuroArtAI Bot</b>\n\n📸 Просто опиши, что хочешь увидеть!\n\n<b>Команды:</b>\n/start - Начать\n/generate - Генерировать\n/help - Справка", main_menu_keyboard())
-        return
-    
-    # PROMPT INPUT
-    if chat_id in waiting_prompt:
-        prompt = text.strip()
-        del waiting_prompt[chat_id]
-        
-        if len(prompt) < 3:
-            send_msg(chat_id, "❌ Слишком короткое описание! Минимум 3 символа.")
-            return
-        
-        send_msg(chat_id, f"⏳ Генерирую... (10-30 сек)\n📝 Запрос: {prompt[:50]}")
-        img = gen_img(prompt)
-        
-        if img:
-            try:
-                Path("images").mkdir(exist_ok=True)
-                fn = f"images/img_{chat_id}_{int(time.time())}.png"
-                with open(fn, 'wb') as f:
-                    f.write(img)
-                
-                send_img(chat_id, fn, f"✨ <b>Готово!</b>\n📝 {prompt[:80]}")
-                send_msg(chat_id, "✅ Готово! Отправь ещё описание или нажми /generate", main_menu_keyboard())
-            except Exception as e:
-                send_msg(chat_id, f"❌ Ошибка: {str(e)[:30]}")
-        else:
-            send_msg(chat_id, "❌ Ошибка генерации. Попробуй другое описание.")
-        return
-    
-    # DEFAULT - обработай как промпт
-    if text and not text.startswith("/"):
-        waiting_prompt[chat_id] = False  # Флаг что это просто текст
-        prompt = text.strip()
-        
-        if len(prompt) < 3:
-            send_msg(chat_id, "👆 Используй кнопки ниже или напиши описание (минимум 3 символа)!", main_menu_keyboard())
-            return
-        
-        send_msg(chat_id, f"⏳ Генерирую... (10-30 сек)\n📝 Запрос: {prompt[:50]}")
-        img = gen_img(prompt)
-        
-        if img:
-            try:
-                Path("images").mkdir(exist_ok=True)
-                fn = f"images/img_{chat_id}_{int(time.time())}.png"
-                with open(fn, 'wb') as f:
-                    f.write(img)
-                
-                send_img(chat_id, fn, f"✨ <b>Готово!</b>\n📝 {prompt[:80]}")
-                send_msg(chat_id, "✅ Готово! Отправь ещё описание или нажми /generate", main_menu_keyboard())
-            except Exception as e:
-                send_msg(chat_id, f"❌ Ошибка: {str(e)[:30]}")
-        else:
-            send_msg(chat_id, "❌ Ошибка генерации. Попробуй другое описание.")
-        return
-    
-    # UNKNOWN
-    send_msg(chat_id, "👆 Используй кнопки ниже!", main_menu_keyboard())
-
 def main():
-    """Main polling loop"""
     global processed
-    
-    # Загружаем уже обработанные сообщения при запуске
-    processed = load_processed()
-    print(f"[STARTUP] Loaded {len(processed)} processed messages from disk")
-    
     offset = 0
-    
-    print("[POLLING] Starting polling loop...")
     
     while True:
         try:
-            # Используем longer timeout для long polling
-            r = requests.post(
-                f"{API_URL}/getUpdates",
-                json={"offset": offset, "timeout": 30},
-                timeout=35
-            )
-            
+            r = requests.post(f"{API_URL}/getUpdates", json={"offset": offset, "timeout": 30}, timeout=35)
             if r.status_code != 200:
-                print(f"[ERROR] Telegram API error: {r.status_code}")
-                time.sleep(2)
+                time.sleep(1)
                 continue
             
             updates = r.json().get("result", [])
-            
             if not updates:
-                # Нет новых сообщений, продолжаем опрос
+                time.sleep(0.5)
                 continue
             
-            print(f"[UPDATES] Got {len(updates)} updates")
-            
             for upd in updates:
-                try:
-                    offset = upd.get("update_id", 0) + 1
-                    msg = upd.get("message", {})
-                    
-                    if not msg:
-                        continue
-                    
-                    chat_id = msg.get("chat", {}).get("id")
-                    text = msg.get("text", "").strip()
-                    msg_id = msg.get("message_id")
-                    
-                    if not (chat_id and text and msg_id):
-                        continue
-                    
-                    # Дедупликация - проверяем файл
-                    key = f"{chat_id}_{msg_id}"
-                    if key in processed:
-                        print(f"[SKIP] Duplicate message: {key}")
-                        continue
-                    
-                    # Также проверяем последнее видимое сообщение для этого чата
-                    if last_seen_msg.get(chat_id) == msg_id:
-                        print(f"[SKIP] Same msg_id in this cycle: {chat_id}_{msg_id}")
-                        continue
-                    
-                    last_seen_msg[chat_id] = msg_id  # Обновляем последнее видимое
-                    processed.add(key)
-                    save_processed(key)  # Сохраняем в файл
-                    print(f"[MSG] Chat {chat_id}: {text[:50]}")
-                    
-                    # Обработай сообщение
-                    handle(chat_id, text)
-                    
-                except Exception as e:
-                    print(f"[ERROR] Processing update: {e}")
+                offset = upd.get("update_id", 0) + 1
+                msg = upd.get("message", {})
+                chat_id = msg.get("chat", {}).get("id")
+                text = msg.get("text", "").strip()
+                msg_id = msg.get("message_id")
+                
+                if not (chat_id and text and msg_id):
                     continue
+                
+                # Дедупликация
+                key = f"{chat_id}_{msg_id}"
+                if key in processed:
+                    continue
+                
+                processed.add(key)
+                print(f"[MSG] {chat_id}: {text[:40]}")
+                
+                # Обработка
+                if text == "/start":
+                    send_msg(chat_id, "Hi! Send me a description and I'll generate an image 🎨")
+                    continue
+                
+                # Генерируем изображение для любого текста
+                send_msg(chat_id, f"⏳ Generating... ({text[:40]})")
+                img = gen_img(text)
+                
+                if img:
+                    Path("images").mkdir(exist_ok=True)
+                    fn = f"images/img_{chat_id}_{int(time.time())}.png"
+                    with open(fn, 'wb') as f:
+                        f.write(img)
+                    send_photo(chat_id, fn, f"Generated: {text[:60]}")
+                else:
+                    send_msg(chat_id, "❌ Generation failed. Try again.")
         
-        except requests.exceptions.Timeout:
-            print("[TIMEOUT] Request timeout, retrying...")
-            time.sleep(2)
-        except requests.exceptions.ConnectionError:
-            print("[ERROR] Connection error, retrying...")
-            time.sleep(5)
+        except KeyboardInterrupt:
+            break
         except Exception as e:
-            print(f"[ERROR] Unexpected error: {e}")
-            time.sleep(2)
+            print(f"[ERROR] {e}")
+            time.sleep(1)
 
 if __name__ == "__main__":
-    setup_commands()
     main()
 
