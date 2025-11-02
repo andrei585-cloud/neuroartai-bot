@@ -8,7 +8,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Копируй код
 COPY bot.py .
-COPY .env .
 
 # Создай папки для данных
 RUN mkdir -p data/emails images logs
