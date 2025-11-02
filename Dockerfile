@@ -13,5 +13,5 @@ COPY bot.py .
 RUN mkdir -p data/emails images logs
 
 # Запусти бота
-# Build v2 - cache bust
+# Build v3 - removed .env copy - cache bust 2025-11-02 forced rebuild
 CMD ["python", "bot.py"]
