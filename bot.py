@@ -35,6 +35,8 @@ def save_processed(msg_key):
 processed = load_processed()
 print(f"[LOAD] Loaded {len(processed)} processed messages from disk")
 
+last_cycle_keys = set()  # Сообщения из текущего цикла
+
 def send_msg(chat_id, text):
     """Send message"""
     try:
@@ -64,11 +66,13 @@ def gen_img(prompt):
     return None
 
 def main():
-    global processed
+    global processed, last_cycle_keys
     offset = 0
     
     while True:
         try:
+            last_cycle_keys = set()  # Новый цикл = новый набор ключей
+            
             r = requests.post(f"{API_URL}/getUpdates", json={"offset": offset, "timeout": 30}, timeout=35)
             if r.status_code != 200:
                 time.sleep(1)
@@ -89,16 +93,22 @@ def main():
                 if not (chat_id and text and msg_id):
                     continue
                 
-                # Дедупликация - проверяем с диска
                 key = f"{chat_id}_{msg_id}"
-                if key in processed:
-                    print(f"[SKIP] Duplicate: {key}")
+                
+                # Двухуровневая дедупликация
+                if key in last_cycle_keys:
+                    print(f"[DUP-CYCLE] Same in this cycle: {key}")
                     continue
                 
-                # Помечаем как обработанное И СОХРАНЯЕМ НА ДИСК
+                if key in processed:
+                    print(f"[DUP-DISK] Already processed: {key}")
+                    continue
+                
+                # Новое сообщение!
+                last_cycle_keys.add(key)
                 processed.add(key)
                 save_processed(key)
-                print(f"[MSG] {chat_id}: {text[:40]}")
+                print(f"[NEW] {chat_id}: {text[:40]}")
                 
                 # Обработка
                 if text == "/start":
