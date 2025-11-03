@@ -1,3 +1,18 @@
+# Secrets and env
+.env
+
+# Runtime data
+offset.txt
+images/
+logs/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+Thumbs.db
+.DS_Store
 # Environment variables
 .env
 .env.local

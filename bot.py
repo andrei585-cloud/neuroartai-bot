@@ -1,132 +1,163 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os, time, requests
+import os
+import time
+import requests
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN') or "8400229648:AAGsp41ZXNEaVNzV2WP0N-W0IqJ2sXCyimg"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+if not TELEGRAM_TOKEN:
+    print("[FATAL] Переменная TELEGRAM_TOKEN не задана. Установите её в Railway Variables или локально в окружении.")
+    raise SystemExit(1)
+
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 OFFSET_FILE = "offset.txt"
 
-print("[STARTUP] Bot ready")
+print("[STARTUP] Бот запущен")
 
-# Загружаем последний offset
+
 def load_offset():
-    """Load last processed offset from disk"""
+    """Загрузка последнего offset с диска"""
     if os.path.exists(OFFSET_FILE):
         try:
-            with open(OFFSET_FILE, 'r') as f:
-                val = f.read().strip()
-                if val.isdigit():
-                    return int(val)
-        except:
-            pass
+            with open(OFFSET_FILE, "r", encoding="utf-8") as f:
+                raw = f.read().strip()
+                return int(raw) if raw.isdigit() else 0
+        except Exception:
+            return 0
     return 0
 
-# Сохраняем новый offset
-def save_offset(offset):
-    """Save offset to disk"""
+
+def save_offset(offset: int) -> None:
+    """Сохранение offset на диск"""
     try:
-        with open(OFFSET_FILE, 'w') as f:
+        with open(OFFSET_FILE, "w", encoding="utf-8") as f:
             f.write(str(offset))
-    except:
+    except Exception:
         pass
 
-offset = load_offset()
-print(f"[LOAD] Starting with offset={offset}")
 
-def send_msg(chat_id, text):
-    """Send message"""
+def setup_commands() -> None:
+    """Регистрирует команды /start и /help в меню Telegram"""
     try:
-        requests.post(f"{API_URL}/sendMessage", json={"chat_id": chat_id, "text": text}, timeout=10)
-    except:
+        cmds = [
+            {"command": "start", "description": "Запуск бота"},
+            {"command": "help", "description": "Как пользоваться"},
+        ]
+        requests.post(f"{API_URL}/setMyCommands", json={"commands": cmds}, timeout=10)
+    except Exception:
         pass
 
-def send_photo(chat_id, img_path, cap):
-    """Send photo"""
+
+def send_msg(chat_id: int, text: str) -> None:
     try:
-        with open(img_path, 'rb') as f:
-            requests.post(f"{API_URL}/sendPhoto", files={'photo': f}, data={'chat_id': chat_id, 'caption': cap}, timeout=60)
-    except:
+        requests.post(
+            f"{API_URL}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=15,
+        )
+    except Exception:
         pass
 
-def gen_img(prompt):
-    """Generate image"""
+
+def send_photo(chat_id: int, image_path: str, caption: str) -> None:
+    try:
+        with open(image_path, "rb") as f:
+            requests.post(
+                f"{API_URL}/sendPhoto",
+                files={"photo": f},
+                data={"chat_id": chat_id, "caption": caption},
+                timeout=60,
+            )
+    except Exception:
+        pass
+
+
+def gen_img(prompt: str) -> bytes | None:
+    """Получает изображение от Pollinations по текстовому запросу."""
     try:
         import urllib.parse
+
         safe_prompt = urllib.parse.quote(prompt)
         url = f"https://image.pollinations.ai/prompt/{safe_prompt}"
-        r = requests.get(url, timeout=120, allow_redirects=True)
-        if r.status_code == 200 and len(r.content) > 1000:
+        r = requests.get(url, timeout=60, allow_redirects=True)
+        if r.status_code == 200 and r.content and len(r.content) > 1000:
             return r.content
-    except:
-        pass
+    except Exception:
+        return None
     return None
 
-def main():
-    global offset
-    
+
+def main() -> None:
+    setup_commands()
+    offset = load_offset()
+    print(f"[LOAD] Стартуем с offset={offset}")
+
     while True:
         try:
-            r = requests.post(f"{API_URL}/getUpdates", json={"offset": offset, "timeout": 30}, timeout=35)
-            if r.status_code != 200:
-                print(f"[POLL ERROR] Status {r.status_code}")
+            resp = requests.post(
+                f"{API_URL}/getUpdates",
+                json={"offset": offset, "timeout": 30},
+                timeout=35,
+            )
+            if resp.status_code != 200:
+                print(f"[POLL ERROR] HTTP {resp.status_code}")
                 time.sleep(1)
                 continue
-            
-            updates = r.json().get("result", [])
-            print(f"[POLL] Got {len(updates)} updates")
-            
+
+            updates = resp.json().get("result", [])
             if not updates:
                 time.sleep(0.5)
                 continue
-            
+
             for upd in updates:
                 update_id = upd.get("update_id", 0)
-                msg = upd.get("message", {})
-                chat_id = msg.get("chat", {}).get("id")
-                text = msg.get("text", "").strip()
-                msg_id = msg.get("message_id")
-                
-                if not (chat_id and text and msg_id):
+                msg = upd.get("message") or {}
+                chat_id = (msg.get("chat") or {}).get("id")
+                text = (msg.get("text") or "").strip()
+
+                if not chat_id:
                     offset = update_id + 1
                     save_offset(offset)
                     continue
-                
-                print(f"[MSG] chat={chat_id}, msg_id={msg_id}, text={text[:30]}")
-                
-                # Обработка
+
                 if text == "/start":
-                    send_msg(chat_id, "Hi! Send me a description and I'll generate an image 🎨")
-                else:
-                    # Генерируем изображение для любого текста
-                    print(f"[GEN] Starting generation for: {text[:40]}")
-                    send_msg(chat_id, f"⏳ Generating... ({text[:40]})")
+                    send_msg(
+                        chat_id,
+                        "Привет! Пришли мне описание картинки, и я сгенерирую изображение 🎨",
+                    )
+                elif text == "/help":
+                    send_msg(
+                        chat_id,
+                        "Как пользоваться: просто отправьте текстовое описание изображения. Я отвечу картинкой.",
+                    )
+                elif text:
+                    # Любой текст → генерация
+                    print(f"[GEN] prompt='{text[:60]}'")
+                    send_msg(chat_id, f"⏳ Генерирую... ({text[:60]})")
                     img = gen_img(text)
-                    
                     if img:
-                        Path("images").mkdir(exist_ok=True)
+                        Path("images").mkdir(parents=True, exist_ok=True)
                         fn = f"images/img_{chat_id}_{int(time.time())}.png"
-                        with open(fn, 'wb') as f:
+                        with open(fn, "wb") as f:
                             f.write(img)
-                        print(f"[SEND] Photo: {fn}")
-                        send_photo(chat_id, fn, f"Generated: {text[:60]}")
+                        send_photo(chat_id, fn, f"Готово: {text[:100]}")
                     else:
-                        print(f"[FAIL] Generation failed")
-                        send_msg(chat_id, "❌ Generation failed. Try again.")
-                
-                # Обновляем offset ПОСЛЕ обработки сообщения
+                        send_msg(chat_id, "❌ Не удалось сгенерировать. Попробуйте ещё раз.")
+
+                # Обновляем offset ПОСЛЕ обработки
                 offset = update_id + 1
                 save_offset(offset)
-                print(f"[SAVE] offset={offset}")
-        
+
         except KeyboardInterrupt:
             break
         except Exception as e:
             print(f"[ERROR] {e}")
             time.sleep(1)
+
 
 if __name__ == "__main__":
     main()
