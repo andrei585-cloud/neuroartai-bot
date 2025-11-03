@@ -41,16 +41,18 @@ def save_offset(offset: int) -> None:
 
 
 def setup_commands() -> None:
-    """Регистрирует команды в меню Telegram (локализация RU)."""
+    """Удаляет команды из меню Telegram, чтобы скрыть кнопку подсказок."""
     try:
-        cmds = [
-            {"command": "start", "description": "Запуск бота"},
-            {"command": "help", "description": "Как пользоваться"},
-        ]
-        # Устанавливаем команды для русского языка
+        # Удалим команды по умолчанию
         requests.post(
-            f"{API_URL}/setMyCommands",
-            json={"commands": cmds, "language_code": "ru"},
+            f"{API_URL}/deleteMyCommands",
+            json={},
+            timeout=10,
+        )
+        # И для русского языка (на случай, если ранее задавались локализованные)
+        requests.post(
+            f"{API_URL}/deleteMyCommands",
+            json={"language_code": "ru"},
             timeout=10,
         )
     except Exception:
