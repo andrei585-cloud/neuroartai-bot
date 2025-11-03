@@ -57,6 +57,19 @@ def setup_commands() -> None:
         pass
 
 
+def disable_webhook() -> None:
+    """Гарантированно отключает webhook, чтобы избежать 409-конфликта с getUpdates."""
+    try:
+        # Если был установлен webhook, отключим его (не сбрасывая очереди сообщений)
+        requests.post(
+            f"{API_URL}/deleteWebhook",
+            json={"drop_pending_updates": False},
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
 def send_msg(chat_id: int, text: str) -> None:
     try:
         requests.post(
@@ -97,6 +110,8 @@ def gen_img(prompt: str) -> bytes | None:
 
 
 def main() -> None:
+    # Отключаем webhook, чтобы не было конфликта с long-polling
+    disable_webhook()
     setup_commands()
     offset = load_offset()
     print(f"[LOAD] Стартуем с offset={offset}")
