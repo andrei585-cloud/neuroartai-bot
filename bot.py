@@ -15,6 +15,7 @@ if not TELEGRAM_TOKEN:
 
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 OFFSET_FILE = "offset.txt"
+PROCESSED_FILE = "processed.txt"
 
 print("[STARTUP] Бот запущен")
 
@@ -36,6 +37,30 @@ def save_offset(offset: int) -> None:
     try:
         with open(OFFSET_FILE, "w", encoding="utf-8") as f:
             f.write(str(offset))
+    except Exception:
+        pass
+
+
+def load_processed() -> set[str]:
+    """Загружает множество уже обработанных сообщений (chat_id:message_id)."""
+    processed: set[str] = set()
+    if os.path.exists(PROCESSED_FILE):
+        try:
+            with open(PROCESSED_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    key = line.strip()
+                    if key:
+                        processed.add(key)
+        except Exception:
+            return processed
+    return processed
+
+
+def append_processed(key: str) -> None:
+    """Добавляет ключ обработанного сообщения в файл."""
+    try:
+        with open(PROCESSED_FILE, "a", encoding="utf-8") as f:
+            f.write(key + "\n")
     except Exception:
         pass
 
@@ -116,6 +141,7 @@ def main() -> None:
     disable_webhook()
     setup_commands()
     offset = load_offset()
+    processed = load_processed()
     print(f"[LOAD] Стартуем с offset={offset}")
 
     while True:
@@ -140,6 +166,7 @@ def main() -> None:
                 msg = upd.get("message") or {}
                 chat_id = (msg.get("chat") or {}).get("id")
                 text = (msg.get("text") or "").strip()
+                message_id = msg.get("message_id")
 
                 if not chat_id:
                     offset = update_id + 1
@@ -147,6 +174,16 @@ def main() -> None:
                     continue
 
                 t = text.lower()
+
+                # Дедупликация по chat_id:message_id, если возможно
+                dedup_key = None
+                if chat_id and message_id is not None:
+                    dedup_key = f"{chat_id}:{message_id}"
+                    if dedup_key in processed:
+                        # Уже обработано — просто сдвинем offset
+                        offset = update_id + 1
+                        save_offset(offset)
+                        continue
 
                 # Русские алиасы команд
                 if t in ("/start", "start", "/старт", "старт"):
@@ -179,6 +216,9 @@ def main() -> None:
                 # Обновляем offset ПОСЛЕ обработки
                 offset = update_id + 1
                 save_offset(offset)
+                if dedup_key and dedup_key not in processed:
+                    processed.add(dedup_key)
+                    append_processed(dedup_key)
 
         except KeyboardInterrupt:
             break
