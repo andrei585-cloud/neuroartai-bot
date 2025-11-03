@@ -90,7 +90,7 @@ def disable_webhook() -> None:
         # Если был установлен webhook, отключим его (не сбрасывая очереди сообщений)
         requests.post(
             f"{API_URL}/deleteWebhook",
-            json={"drop_pending_updates": False},
+            json={"drop_pending_updates": True},
             timeout=10,
         )
     except Exception:
